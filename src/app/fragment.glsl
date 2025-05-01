@@ -239,7 +239,7 @@ float sdf_hand(vec3 p)
     p = rotatePointX(p, -PI / 2.);
     return s;
 }
-g
+
 struct Particle {
     vec3 pos;
     vec3 pos_prev;
