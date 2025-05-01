@@ -6,8 +6,7 @@ uniform float iTime;                //// time elapsed (uniform, from CPU)
 uniform float iTimeDelta;
 uniform float iFrame;
 uniform sampler2D iChannel0;
-
-const vec3 CAM_POS = vec3(-0.35, 1.0, -5.0);
+const vec3 CAM_POS = vec3(-0.35, 0.0, -2.0);
 bool initialized = false;
 
 vec2 screen_to_xy(vec2 coord) {
@@ -22,194 +21,6 @@ float dist_sqr(vec2 a, vec2 b) {
     return dot(diff, diff);
 }
 
-struct Particle {
-    vec3 pos;
-    vec3 pos_prev;
-    vec3 vel;
-    float inv_mass;
-    bool is_fixed;
-    float radius; // Added radius field for different particle sizes
-    vec3 color;   // Color of the particle (RGB)
-};
-
-// Simulation constants
-const float damp = 0.4;
-const float collision_dist = 0.2;
-const float ground_collision_dist = 0.1;
-const vec3 gravity = vec3(0.0, -100.0, 0.0);
-
-// Define n_rope rope particles and add one extra "mouse particle".
-const int MAX_PARTICLES = 20;
-// const int MAX_SPRINGS = 20;
-
-Particle particles[MAX_PARTICLES];
-
-const int initial_particles = 6;
-int n_particles = initial_particles; // TODO: for now
-
-void init_state(void){
-    // particles[0].pos = vec3(-2.0, 1.0, 0.0);
-    particles[1].pos = vec3(-1.0, 2.0, 0.0);
-    particles[2].pos = vec3(0.0, 2.0, 0.0);
-    particles[3].pos = vec3(1.0, 2.0, 0.0);
-    particles[4].pos = vec3(2.0, 2.0, 0.0);
-    particles[5].pos = vec3(1.5, 2.0, 0.1);
-
-    for (int i = 1; i < initial_particles; i++) {
-        particles[i].pos_prev = particles[i].pos;
-        particles[i].vel = vec3(0.0);
-        particles[i].inv_mass = 1.0;
-        particles[i].is_fixed = false;
-        particles[i].radius = 0.1;
-        particles[i].color = vec3(1.0, 0.0, 0.0);
-    }
-}
-
-bool is_initializing() {
-    return iTime < 0.06 || iFrame < 2.;
-}
-// // Load rope particles from the previous frame and update the mouse particle.
-void load_state() {
-    //0,0: (num_particles, num_springs, selected_particle)
-
-    vec4 data = texelFetch(iChannel0, ivec2(0, 0), 0);
-    n_particles = int(data.x);
-
-    // Load other particles
-    for (int i = 1; i < n_particles; i++) {
-        vec4 pos_0 = texelFetch(iChannel0, ivec2(i, 0), 0);
-        vec4 vel_0 = texelFetch(iChannel0, ivec2(i, 1), 0);
-        vec4 extraData = texelFetch(iChannel0, ivec2(i, 2), 0);
-
-        particles[i].pos = pos_0.xyz;
-        particles[i].vel = vel_0.xyz;
-        particles[i].inv_mass = 1.0; // default mass
-        particles[i].is_fixed = false;
-        particles[i].radius = extraData.x > 0.0 ? extraData.x : 0.1; // Default to 0.1 if not set
-        particles[i].color = extraData.yzw; // Read color data
-    }
-}
-
-float collision_constraint(vec3 a, vec3 b, float collision_dist){
-    // Compute the distance between two particles a and b.
-    // The constraint is defined as L - L0, where L is the current distance between a and b
-    // and L0 = collision_dist is the minimum distance between a and b.
-
-    float dist = length(a - b);
-    if(dist < collision_dist){
-        //// Your implementation starts
-        return dist - collision_dist;
-        //// Your implementation ends
-    }
-    else{
-        return 0.0;
-    }
-}
-
-vec3 collision_constraint_gradient(vec3 a, vec3 b, float collision_dist){
-    // Compute the gradient of the collision constraint with respect to a.
-
-    float dist = length(a - b);
-    if(dist <= collision_dist){
-        //// Your implementation starts
-        if (a == b) {
-            return vec3(0.0);
-        }
-        vec3 grad = normalize(a - b);
-        return grad;
-        //// Your implementation ends
-    }
-    else{
-        return vec3(0.0);
-    }
-}
-
-void solve_collision_constraint(int i, int j, float collision_dist, float dt){
-    // Use the sum of particle radii as the collision distance
-    float combinedRadius = particles[i].radius + particles[j].radius;
-    
-    // Compute the collision constraint for particles i and j.
-    float numer = 0.0;
-    float denom = 0.0;
-
-    //// Your implementation starts
-    vec3 grad = collision_constraint_gradient(particles[i].pos, particles[j].pos, combinedRadius);
-    //// Your implementation ends
-    numer = -collision_constraint(particles[i].pos, particles[j].pos, combinedRadius);
-    denom = length(collision_constraint_gradient(particles[i].pos, particles[j].pos, combinedRadius)) * particles[i].inv_mass +
-            length(collision_constraint_gradient(particles[j].pos, particles[i].pos, combinedRadius)) * particles[j].inv_mass;
-
-    //PBD if you comment out the following line, which is faster
-    denom += (1. / 1000.) / (dt * dt);
-
-    if (denom == 0.0) return;
-    float lambda = numer / denom;
-    particles[i].pos += lambda * particles[i].inv_mass * grad;
-    particles[j].pos -= lambda * particles[j].inv_mass * grad;
-}
-
-float phi(vec3 p){
-    const float PI = 3.14159265359;
-    //let's do sin(x)+0.5
-    // return p.y - (0.1 * sin(p.x * 2. * PI) - 0.5);
-    return p.y - 0.0;
-}
-
-float ground_constraint(vec3 p, float ground_collision_dist){
-    if(phi(p) < ground_collision_dist){
-        //// Your implementation starts
-        return phi(p) - ground_collision_dist;
-        //// Your implementation ends
-    }
-    else{
-        return 0.0;
-    }    
-}
-
-vec3 ground_constraint_gradient(vec3 p, float ground_collision_dist){
-    // Compute the gradient of the ground constraint with respect to p.
-
-    if(phi(p) < ground_collision_dist){
-        //// Your implementation starts
-        return vec3(0.0, -100.0 * p.y, 0.0);
-        //// Your implementation ends
-    }
-    else{
-        return vec3(0.0, 0.0, 0.0);
-    }
-}
-
-void solve_ground_constraint(int i, float ground_collision_dist, float dt){
-    // Compute the ground constraint for particle i.
-    float numer = 0.0;
-    float denom = 0.0;
-
-    //// Your implementation starts
-    vec3 grad = ground_constraint_gradient(particles[i].pos, ground_collision_dist);
-    numer = -ground_constraint(particles[i].pos, ground_collision_dist);
-    denom = length(ground_constraint_gradient(particles[i].pos, ground_collision_dist)) * particles[i].inv_mass;
-
-    //// Your implementation ends
-
-    //PBD if you comment out the following line, which is faster
-    denom += (1. / 1000.) / (dt * dt);
-
-    if (denom == 0.0) return;
-    float lambda = numer / denom;
-    particles[i].pos += lambda * particles[i].inv_mass * grad;
-}
-
-void solve_constraints(float dt) {
-    for (int i = 1; i < n_particles; i++) {
-        solve_ground_constraint(i, ground_collision_dist, dt);
-    }
-    for (int i = 1; i < n_particles; i++) {
-        for (int j = i + 1; j < n_particles; j++) {
-            solve_collision_constraint(i, j, collision_dist, dt);
-        }
-    }
-    //// Your implementation ends
-}
 
 float sdf2(vec3 p);
 float sdfSmoothUnion(float a, float b, float k);
@@ -374,25 +185,16 @@ float finger(vec3 p, vec3 lengths, vec3 rots) {
     return s;
 }
 
-float sdf(vec3 p)
-{
-    float s = 0.0;
-    // s = sdfPlane(p, 0.0);
-    s = sdfSphere(p, particles[0].pos, particles[0].radius);
-    for (int i = 1; i < n_particles; i++) {
-        s = sdfUnion(s, sdfSphere(p, particles[i].pos, particles[i].radius));
-    }
-    // s = sdfSphere(p, vec3(0., 2., 0.), 0.5);
-    // p -= vec3(0., 1.0, 1.);
+float sdf_hand(vec3 p) {
     p = rotatePointXYZ(p, vec3(0.), -PI / 3., 0., PI / 2.);
 
     // Thumb
     p = rotatePointZ(p, PI / 2.2);
-    s = sdfUnion(s, thumb(
+    float s = thumb(
         rotatePointZ(p - vec3(0.0, 0.5, 0.), -PI / 3.),
         vec2(0.12, 0.09),
         vec2(0.1, 0.1)
-    ));
+    );
     p = rotatePointZ(p, -PI / 2.2);
 
     // Fingers
@@ -424,11 +226,233 @@ float sdf(vec3 p)
     p = rotatePointX(p, PI / 2.);
     s = sdfSmoothUnion(s, sdfCappedCylinder(p, 0.06, 0.5), 0.04);
     p = rotatePointX(p, -PI / 2.);
+    return s;
+}
+
+struct Particle {
+    vec3 pos;
+    vec3 pos_prev;
+    vec3 vel;
+    float inv_mass;
+    bool is_fixed;
+    float radius; // Added radius field for different particle sizes
+    vec3 color;   // Color of the particle (RGB)
+};
+
+// Simulation constants
+const float damp = 0.4;
+const float collision_dist = 0.2;
+const float ground_collision_dist = 0.15;
+const vec3 gravity = vec3(0.0, -100.0, 0.0);
+
+// Define n_rope rope particles and add one extra "mouse particle".
+const int MAX_PARTICLES = 20;
+// const int MAX_SPRINGS = 20;
+
+Particle particles[MAX_PARTICLES];
+
+const int initial_particles = 20;
+int n_particles = initial_particles; // TODO: for now
+
+// https://stackoverflow.com/questions/4200224/random-noise-functions-for-glsl
+float rand(vec2 co){
+    return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+void init_state(void){
+    // particles[0].pos = vec3(-2.0, 1.0, 0.0);
+    // particles[1].pos = vec3(-1.0, 2.0, 0.0);
+    // particles[2].pos = vec3(0.0, 2.0, 0.0);
+    // particles[3].pos = vec3(1.0, 2.0, 0.0);
+    // particles[4].pos = vec3(2.0, 2.0, 0.0);
+    // particles[5].pos = vec3(1.5, 2.0, 0.1);
+
+    for (int i = 1; i < initial_particles; i++) {
+        float start = float(i) / float(initial_particles) * 2.0;
+        float random = sin(rand(vec2(float(i), float(i))));
+        float random2 = sin(rand(vec2(float(i+1), float(i+1))));
+
+        particles[i].pos  = vec3(random, start, random2);
+        particles[i].pos_prev = particles[i].pos;
+        particles[i].vel = vec3(0.0);
+        particles[i].inv_mass = 1.0;
+        particles[i].is_fixed = false;
+        particles[i].radius = 0.03;
+        particles[i].color = vec3(1.0, 0.0, 0.0);
+    }
+}
+
+bool is_initializing() {
+    return iTime < 0.06 || iFrame < 2.;
+}
+// // Load rope particles from the previous frame and update the mouse particle.
+void load_state() {
+    //0,0: (num_particles, num_springs, selected_particle)
+
+    vec4 data = texelFetch(iChannel0, ivec2(0, 0), 0);
+    n_particles = int(data.x);
+
+    // Load other particles
+    for (int i = 1; i < n_particles; i++) {
+        vec4 pos_0 = texelFetch(iChannel0, ivec2(i, 0), 0);
+        vec4 vel_0 = texelFetch(iChannel0, ivec2(i, 1), 0);
+        vec4 extraData = texelFetch(iChannel0, ivec2(i, 2), 0);
+
+        particles[i].pos = pos_0.xyz;
+        particles[i].vel = vel_0.xyz;
+        particles[i].inv_mass = 1.0; // default mass
+        particles[i].is_fixed = false;
+        particles[i].radius = extraData.x > 0.0 ? extraData.x : 0.1; // Default to 0.1 if not set
+        particles[i].color = extraData.yzw; // Read color data
+    }
+}
+
+float collision_constraint(vec3 a, vec3 b, float collision_dist){
+    // Compute the distance between two particles a and b.
+    // The constraint is defined as L - L0, where L is the current distance between a and b
+    // and L0 = collision_dist is the minimum distance between a and b.
+
+    float dist = length(a - b);
+    if(dist < collision_dist){
+        //// Your implementation starts
+        return dist - collision_dist;
+        //// Your implementation ends
+    }
+    else{
+        return 0.0;
+    }
+}
+
+vec3 collision_constraint_gradient(vec3 a, vec3 b, float collision_dist){
+    // Compute the gradient of the collision constraint with respect to a.
+
+    float dist = length(a - b);
+    if(dist <= collision_dist){
+        //// Your implementation starts
+        if (a == b) {
+            return vec3(0.0);
+        }
+        vec3 grad = normalize(a - b);
+        return grad;
+        //// Your implementation ends
+    }
+    else{
+        return vec3(0.0);
+    }
+}
+
+void solve_collision_constraint(int i, int j, float collision_dist, float dt){
+    // Use the sum of particle radii as the collision distance
+    float combinedRadius = particles[i].radius + particles[j].radius;
+    
+    // Compute the collision constraint for particles i and j.
+    float numer = 0.0;
+    float denom = 0.0;
+
+    //// Your implementation starts
+    vec3 grad = collision_constraint_gradient(particles[i].pos, particles[j].pos, combinedRadius);
+    //// Your implementation ends
+    numer = -collision_constraint(particles[i].pos, particles[j].pos, combinedRadius);
+    denom = length(collision_constraint_gradient(particles[i].pos, particles[j].pos, combinedRadius)) * particles[i].inv_mass +
+            length(collision_constraint_gradient(particles[j].pos, particles[i].pos, combinedRadius)) * particles[j].inv_mass;
+
+    //PBD if you comment out the following line, which is faster
+    denom += (1. / 1000.) / (dt * dt);
+
+    if (denom == 0.0) return;
+    float lambda = numer / denom;
+    particles[i].pos += lambda * particles[i].inv_mass * grad;
+    particles[j].pos -= lambda * particles[j].inv_mass * grad;
+}
+
+// float phi(vec3 p){
+//     const float PI = 3.14159265359;
+//     //let's do sin(x)+0.5
+//     // return p.y - (0.1 * sin(p.x * 2. * PI) - 0.5);
+//     return p.y - 0.0;
+// }
+
+
+vec3 hand_sdf_gradient(vec3 p){
+    float dx = 0.01;
+    float s = sdf_hand(p);
+    return normalize(vec3(sdf_hand(vec3(p.x + dx, p.y, p.z)) - s, sdf_hand(vec3(p.x, p.y + dx, p.z)) - s, sdf_hand(vec3(p.x, p.y, p.z + dx)) - s));
+}
+
+float ground_constraint(vec3 p, float ground_collision_dist){
+    if(sdf_hand(p) < ground_collision_dist){
+        //// Your implementation starts
+        return sdf_hand(p) - ground_collision_dist;
+        //// Your implementation ends
+    }
+    else{
+        return 0.0;
+    }    
+}
+
+vec3 ground_constraint_gradient(vec3 p, float ground_collision_dist){
+    // Compute the gradient of the ground constraint with respect to p.
+
+    if(sdf_hand(p) < ground_collision_dist){
+        //// Your implementation starts
+        return hand_sdf_gradient(p);
+        //// Your implementation ends
+    }
+    else{
+        return vec3(0.0, 0.0, 0.0);
+    }
+}
+
+void solve_ground_constraint(int i, float ground_collision_dist, float dt){
+    // Compute the ground constraint for particle i.
+    float numer = 0.0;
+    float denom = 0.0;
+
+    //// Your implementation starts
+    vec3 grad = ground_constraint_gradient(particles[i].pos, ground_collision_dist);
+    numer = -ground_constraint(particles[i].pos, ground_collision_dist);
+    denom = length(ground_constraint_gradient(particles[i].pos, ground_collision_dist)) * particles[i].inv_mass;
+
+    //// Your implementation ends
+
+    //PBD if you comment out the following line, which is faster
+    denom += (1. / 1000.) / (dt * dt);
+
+    if (denom == 0.0) return;
+    float lambda = numer / denom;
+    particles[i].pos += lambda * particles[i].inv_mass * grad;
+}
+
+void solve_constraints(float dt) {
+    for (int i = 1; i < n_particles; i++) {
+        solve_ground_constraint(i, ground_collision_dist, dt);
+    }
+    for (int i = 1; i < n_particles; i++) {
+        for (int j = i + 1; j < n_particles; j++) {
+            solve_collision_constraint(i, j, collision_dist, dt);
+        }
+    }
+    //// Your implementation ends
+}
+
+
+float sdf(vec3 p)
+{
+    float s = 0.0;
+    // s = sdfPlane(p, 0.0);
+    s = sdfSphere(p, particles[0].pos, particles[0].radius);
+    for (int i = 1; i < n_particles; i++) {
+        s = sdfSmoothUnion(s, sdfSphere(p, particles[i].pos, particles[i].radius), 0.05);
+    }
+    s = sdfUnion(s, sdf_hand(p));
+    // s = sdfSphere(p, vec3(0., 2., 0.), 0.5);
+    // p -= vec3(0., 1.0, 1.);
 
     // Palm
 
     return s;
 }
+
 
 /////////////////////////////////////////////////////
 //// ray marching
