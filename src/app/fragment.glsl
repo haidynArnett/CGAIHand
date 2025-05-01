@@ -36,7 +36,7 @@ struct Particle {
 const float damp = 0.4;
 const float collision_dist = 0.2;
 const float ground_collision_dist = 0.1;
-const vec3 gravity = vec3(0.0, -0.4, 0.0);
+const vec3 gravity = vec3(0.0, -100.0, 0.0);
 
 // Define n_rope rope particles and add one extra "mouse particle".
 const int MAX_PARTICLES = 20;
@@ -44,22 +44,23 @@ const int MAX_PARTICLES = 20;
 
 Particle particles[MAX_PARTICLES];
 
-const int initial_particles = 5;
-int n_particles = 5;
+const int initial_particles = 6;
+int n_particles = initial_particles; // TODO: for now
 
 void init_state(void){
-    particles[0].pos = vec3(-2.0, 1.0, 0.0);
-    particles[1].pos = vec3(-1.0, 1.0, 0.0);
-    particles[2].pos = vec3(0.0, 1.0, 0.0);
-    particles[3].pos = vec3(1.0, 1.0, 0.0);
-    particles[4].pos = vec3(2.0, 1.0, 0.0);
+    // particles[0].pos = vec3(-2.0, 1.0, 0.0);
+    particles[1].pos = vec3(-1.0, 2.0, 0.0);
+    particles[2].pos = vec3(0.0, 2.0, 0.0);
+    particles[3].pos = vec3(1.0, 2.0, 0.0);
+    particles[4].pos = vec3(2.0, 2.0, 0.0);
+    particles[5].pos = vec3(1.5, 2.0, 0.1);
 
-    for (int i = 0; i < initial_particles; i++) {
+    for (int i = 1; i < initial_particles; i++) {
         particles[i].pos_prev = particles[i].pos;
         particles[i].vel = vec3(0.0);
         particles[i].inv_mass = 1.0;
         particles[i].is_fixed = false;
-        particles[i].radius = 0.5;
+        particles[i].radius = 0.1;
         particles[i].color = vec3(1.0, 0.0, 0.0);
     }
 }
@@ -170,8 +171,7 @@ vec3 ground_constraint_gradient(vec3 p, float ground_collision_dist){
 
     if(phi(p) < ground_collision_dist){
         //// Your implementation starts
-        const float PI = 3.14159265359;
-        return vec3(-0.1 * 2. * PI * cos(p.x * 2. * PI), -0.1 * 2. * PI * cos(p.y * 2. * PI), 1.0);
+        return vec3(0.0, -100.0 * p.y, 0.0);
         //// Your implementation ends
     }
     else{
@@ -377,52 +377,53 @@ float finger(vec3 p, vec3 lengths, vec3 rots) {
 float sdf(vec3 p)
 {
     float s = 0.0;
-    s = sdfPlane(p, 0.0);
-    // s = sdfSphere(p, vec3(0., 2., 0.), 0.5);
-    for (int i = 0; i < n_particles; i++) {
+    // s = sdfPlane(p, 0.0);
+    s = sdfSphere(p, particles[0].pos, particles[0].radius);
+    for (int i = 1; i < n_particles; i++) {
         s = sdfUnion(s, sdfSphere(p, particles[i].pos, particles[i].radius));
     }
+    // s = sdfSphere(p, vec3(0., 2., 0.), 0.5);
     // p -= vec3(0., 1.0, 1.);
-    // p = rotatePointXYZ(p, vec3(0.), -PI / 3., 0., PI / 2.);
+    p = rotatePointXYZ(p, vec3(0.), -PI / 3., 0., PI / 2.);
 
-    // // Thumb
-    // p = rotatePointZ(p, PI / 2.2);
-    // float s = thumb(
-    //     rotatePointZ(p - vec3(0.0, 0.5, 0.), -PI / 3.),
-    //     vec2(0.12, 0.09),
-    //     vec2(0.1, 0.1)
-    // );
-    // p = rotatePointZ(p, -PI / 2.2);
+    // Thumb
+    p = rotatePointZ(p, PI / 2.2);
+    s = sdfUnion(s, thumb(
+        rotatePointZ(p - vec3(0.0, 0.5, 0.), -PI / 3.),
+        vec2(0.12, 0.09),
+        vec2(0.1, 0.1)
+    ));
+    p = rotatePointZ(p, -PI / 2.2);
 
-    // // Fingers
-    // s = sdfUnion(s, finger(
-    //     p - vec3(0.3, 0.3, 0.),
-    //     vec3(0.15, 0.13, 0.1),
-    //     vec3(0.1, 0.1, 0.1)
-    // ));
+    // Fingers
+    s = sdfUnion(s, finger(
+        p - vec3(0.3, 0.3, 0.),
+        vec3(0.15, 0.13, 0.1),
+        vec3(0.1, 0.1, 0.1)
+    ));
 
-    // s = sdfUnion(s, finger(
-    //     p - vec3(0.1, 0.4, 0.),
-    //     vec3(0.15, 0.13, 0.1),
-    //     vec3(0.1, 0.1, 0.1)
-    // ));
+    s = sdfUnion(s, finger(
+        p - vec3(0.1, 0.4, 0.),
+        vec3(0.15, 0.13, 0.1),
+        vec3(0.1, 0.1, 0.1)
+    ));
 
-    // s = sdfUnion(s, finger(
-    //     p - vec3(-0.1, 0.4, 0.),
-    //     vec3(0.15, 0.13, 0.1),
-    //     vec3(0.1, 0.1, 0.1)
-    // ));
+    s = sdfUnion(s, finger(
+        p - vec3(-0.1, 0.4, 0.),
+        vec3(0.15, 0.13, 0.1),
+        vec3(0.1, 0.1, 0.1)
+    ));
 
-    // s = sdfUnion(s, finger(
-    //     p - vec3(-0.3, 0.3, 0.),
-    //     vec3(0.12, 0.11, 0.08),
-    //     vec3(0.1, 0.1, 0.1)
-    // ));
+    s = sdfUnion(s, finger(
+        p - vec3(-0.3, 0.3, 0.),
+        vec3(0.12, 0.11, 0.08),
+        vec3(0.1, 0.1, 0.1)
+    ));
 
 
-    // p = rotatePointX(p, PI / 2.);
-    // s = sdfSmoothUnion(s, sdfCappedCylinder(p, 0.06, 0.5), 0.04);
-    // p = rotatePointX(p, -PI / 2.);
+    p = rotatePointX(p, PI / 2.);
+    s = sdfSmoothUnion(s, sdfCappedCylinder(p, 0.06, 0.5), 0.04);
+    p = rotatePointX(p, -PI / 2.);
 
     // Palm
 
@@ -636,7 +637,6 @@ void main() {
     else{
         load_state();
         if (pixel_j == 0) {
-            // initialized = true;
             if (pixel_i >= n_particles) return;
 
             float actual_dt = min(iTimeDelta, 0.02);
@@ -657,6 +657,7 @@ void main() {
                 for (int j = 0; j < n_particles; j++) {
                     if (!particles[j].is_fixed){
                         particles[j].vel = (particles[j].pos - particles[j].pos_prev) / dt;
+                        // initialized = true;
                     }
                 }
             }
