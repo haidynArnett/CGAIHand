@@ -57,21 +57,6 @@ float sdfCappedCylinder( vec3 p, float h, float r )
   return min(max(d.x,d.y),0.0) + length(max(d,0.0));
 }
 
-// Octahedron - exact from https://iquilezles.org/articles/distfunctions/
-float sdOctahedron( vec3 p, float s )
-{
-  p = abs(p);
-  float m = p.x+p.y+p.z-s;
-  vec3 q;
-       if( 3.0*p.x < m ) q = p.xyz;
-  else if( 3.0*p.y < m ) q = p.yzx;
-  else if( 3.0*p.z < m ) q = p.zxy;
-  else return m*0.57735027;
-    
-  float k = clamp(0.5*(q.z-q.y+s),0.0,s); 
-  return length(vec3(q.x,q.y-s+k,q.z-k)); 
-}
-
 /////////////////////////////////////////////////////
 //// operations
 /////////////////////////////////////////////////////
@@ -129,22 +114,6 @@ vec3 rotatePointXYZ(vec3 p, vec3 c, float theta_x, float theta_y, float theta_z)
 //// sdf hand calculation
 /////////////////////////////////////////////////////
 
-// struct Joint {
-//     Joint parent;
-//     vec3 offset;
-//     vec3 abs_pos;
-//     vec3 rotation;
-//     float s;
-// }
-
-// Joint make_joint(Joint parent, vec3 offset, vec3 rotation) {
-//     Joint joint = Joint(parent, offset, vec3(0.), rotation, 0.);
-//     joint.abs_pos = joint.offset;
-//     if (joint.parent != NUll) {
-//         joint.abs_pos += joint.parent.abs_pos;
-//     }
-// }
-
 float smoothing_factor = 0.03;
 
 // helpers to build hand
@@ -185,50 +154,92 @@ float finger(vec3 p, vec3 lengths, vec3 rots) {
     return s;
 }
 
-float sdf_hand(vec3 p) {
-    p = rotatePointXYZ(p, vec3(0.), -PI / 3., 0., PI / 2.);
+ vec3[5] lengths = vec3[5](
+    vec3(0.12, 0.09, 0.),
+    vec3(0.15, 0.13, 0.1),
+    vec3(0.15, 0.13, 0.1),
+    vec3(0.15, 0.13, 0.1),
+    vec3(0.12, 0.11, 0.08)
+);
+const vec3[5] open_rotations = vec3[5](
+    vec3(0.1, 0.1, 0.),
+    vec3(0.1, 0.1, 0.1),
+    vec3(0.1, 0.1, 0.1),
+    vec3(0.1, 0.1, 0.1),
+    vec3(0.1, 0.1, 0.1)
+);
+const vec3[5] closed_rotations = vec3[5](
+    vec3(1.2, 1.2, 0.),
+    vec3(1., 1., 1.),
+    vec3(1., 1., 1.),
+    vec3(1., 1., 1.),
+    vec3(1., 1., 1.)
+);
 
-    // Thumb
-    p = rotatePointZ(p, PI / 2.2);
+// for (int i = 0; i < 5; i+=1) {
+//     float k1 = (cos(iTime) + 1.) / 2.;
+//     float k2 = ;
+//     rotations[i] = k1 * closed_rotations[i] + k2 * closed_rotations[i];
+// }
+//  = open_rotations + closed_rotations;
+float sdf_hand(vec3 p)
+{
+    vec3[5] rotations;
+    for (int i = 0; i < 5; ++i) {
+        float k1 = (cos(iTime) + 1.) / 2.;
+        float k2 = 1. - k1;
+        rotations[i] = k1 * open_rotations[i] + k2 * closed_rotations[i];
+    }
+
+    p -= vec3(0., 1.0, 1.);
+    p = rotatePointXYZ(p, vec3(0.), -PI / 3., 0., PI / 2. + iTime);
+
+    // // Thumb
+    p = rotatePointZ(p, PI / 1.8);
     float s = thumb(
-        rotatePointZ(p - vec3(0.0, 0.5, 0.), -PI / 3.),
-        vec2(0.12, 0.09),
-        vec2(0.1, 0.1)
+        rotatePointZ(p - vec3(0.0, 0.5, 0.), -PI / 6.),
+        lengths[0].xy,
+        rotations[0].xy
     );
-    p = rotatePointZ(p, -PI / 2.2);
+    p = rotatePointZ(p, -PI / 1.8);
 
-    // Fingers
+    // // Fingers
     s = sdfUnion(s, finger(
         p - vec3(0.3, 0.3, 0.),
-        vec3(0.15, 0.13, 0.1),
-        vec3(0.1, 0.1, 0.1)
+        lengths[1],
+        rotations[1]
     ));
 
     s = sdfUnion(s, finger(
         p - vec3(0.1, 0.4, 0.),
-        vec3(0.15, 0.13, 0.1),
-        vec3(0.1, 0.1, 0.1)
+        lengths[2],
+        rotations[2]
     ));
 
     s = sdfUnion(s, finger(
         p - vec3(-0.1, 0.4, 0.),
-        vec3(0.15, 0.13, 0.1),
-        vec3(0.1, 0.1, 0.1)
+        lengths[3],
+        rotations[3]
     ));
 
     s = sdfUnion(s, finger(
         p - vec3(-0.3, 0.3, 0.),
-        vec3(0.12, 0.11, 0.08),
-        vec3(0.1, 0.1, 0.1)
+        lengths[4],
+        rotations[4]
     ));
 
 
+    // Palm
     p = rotatePointX(p, PI / 2.);
-    s = sdfSmoothUnion(s, sdfCappedCylinder(p, 0.06, 0.5), 0.04);
+    float palm_s = sdfCappedCylinder(p, 0.06, 0.5);
+    palm_s = sdfSubtraction(palm_s, sdfBox(p, vec3(-0.65, 0., 0.), vec3(0.2, 0.1, 0.8)));
+    palm_s = sdfSubtraction(palm_s, sdfBox(p, vec3(0., 0., -0.5), vec3(0.5, 0.1, 0.1)));
+    s = sdfSmoothUnion(s, palm_s, 0.05);
+    // s = sdfSmoothUnion(s, sdfCappedCylinder(p, 0.06, 0.5), 0.04);
     p = rotatePointX(p, -PI / 2.);
     return s;
 }
-
+g
 struct Particle {
     vec3 pos;
     vec3 pos_prev;
@@ -448,7 +459,6 @@ float sdf(vec3 p)
     // s = sdfSphere(p, vec3(0., 2., 0.), 0.5);
     // p -= vec3(0., 1.0, 1.);
 
-    // Palm
 
     return s;
 }
@@ -499,7 +509,7 @@ vec3 phong_shading(vec3 p, vec3 n)
 {
     //// background
     if(p.z > 10.0){
-        return vec3(0.9, 0.6, 0.2);
+        return vec3(0.1, 0.1, 0.1);
     }
 
     //// phong shading
