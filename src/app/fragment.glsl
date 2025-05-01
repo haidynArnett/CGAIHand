@@ -3,8 +3,205 @@ precision highp float;              //// set default precision of float variable
 varying vec2 vUv;                   //// screen uv coordinates (varying, from vertex shader)
 uniform vec2 iResolution;           //// screen resolution (uniform, from CPU)
 uniform float iTime;                //// time elapsed (uniform, from CPU)
+uniform float iTimeDelta;
+uniform float iFrame;
+uniform sampler2D iChannel0;
 
-const vec3 CAM_POS = vec3(-0.35, 1.0, -3.0);
+const vec3 CAM_POS = vec3(-0.35, 1.0, -6.0);
+
+vec2 screen_to_xy(vec2 coord) {
+    return (coord - 0.5 * iResolution.xy) * 2.0 / iResolution.y;
+}
+
+float remap01(float inp, float inp_start, float inp_end) {
+    return clamp((inp - inp_start) / (inp_end - inp_start), 0.0, 1.0);
+}
+float dist_sqr(vec2 a, vec2 b) {
+    vec2 diff = a - b;
+    return dot(diff, diff);
+}
+
+struct Particle {
+    vec3 pos;
+    vec3 pos_prev;
+    vec3 vel;
+    float inv_mass;
+    bool is_fixed;
+    float radius; // Added radius field for different particle sizes
+    vec3 color;   // Color of the particle (RGB)
+};
+
+// Simulation constants
+const float damp = 0.4;
+const float collision_dist = 0.2;
+const float ground_collision_dist = 0.1;
+const vec3 gravity = vec3(0.0, -0.4, 0.0);
+
+// Define n_rope rope particles and add one extra "mouse particle".
+const int MAX_PARTICLES = 20;
+// const int MAX_SPRINGS = 20;
+
+int n_particles;
+Particle particles[MAX_PARTICLES];
+
+const int initial_particles = 5;
+
+void init_state(void){
+    for (int i = 0; i < initial_particles; i++) {
+        particles[i].pos = vec3(0.0);
+        particles[i].pos_prev = vec3(0.0);
+        particles[i].vel = vec3(0.0);
+        particles[i].inv_mass = 1.0;
+        particles[i].is_fixed = false;
+    }
+}
+
+bool is_initializing() {
+    return iTime < 0.06 || iFrame < 2.;
+}
+
+// // Load rope particles from the previous frame and update the mouse particle.
+void load_state() {
+    //0,0: (num_particles, num_springs, selected_particle)
+
+    vec4 data = texelFetch(iChannel0, ivec2(0, 0), 0);
+    n_particles = int(data.x);
+
+    // Load other particles
+    for (int i = 1; i < n_particles; i++) {
+        vec4 pos_0 = texelFetch(iChannel0, ivec2(i, 0), 0);
+        vec4 vel_0 = texelFetch(iChannel0, ivec2(i, 1), 0);
+        vec4 extraData = texelFetch(iChannel0, ivec2(i, 2), 0);
+
+        particles[i].pos = pos_0.xyz;
+        particles[i].vel = vel_0.xyz;
+        particles[i].inv_mass = 1.0; // default mass
+        particles[i].is_fixed = false;
+        particles[i].radius = extraData.x > 0.0 ? extraData.x : 0.1; // Default to 0.1 if not set
+        particles[i].color = extraData.yzw; // Read color data
+    }
+}
+
+float collision_constraint(vec3 a, vec3 b, float collision_dist){
+    // Compute the distance between two particles a and b.
+    // The constraint is defined as L - L0, where L is the current distance between a and b
+    // and L0 = collision_dist is the minimum distance between a and b.
+
+    float dist = length(a - b);
+    if(dist < collision_dist){
+        //// Your implementation starts
+        return dist - collision_dist;
+        //// Your implementation ends
+    }
+    else{
+        return 0.0;
+    }
+}
+
+vec3 collision_constraint_gradient(vec3 a, vec3 b, float collision_dist){
+    // Compute the gradient of the collision constraint with respect to a.
+
+    float dist = length(a - b);
+    if(dist <= collision_dist){
+        //// Your implementation starts
+        if (a == b) {
+            return vec3(0.0);
+        }
+        vec3 grad = normalize(a - b);
+        return grad;
+        //// Your implementation ends
+    }
+    else{
+        return vec3(0.0);
+    }
+}
+
+void solve_collision_constraint(int i, int j, float collision_dist, float dt){
+    // Use the sum of particle radii as the collision distance
+    float combinedRadius = particles[i].radius + particles[j].radius;
+    
+    // Compute the collision constraint for particles i and j.
+    float numer = 0.0;
+    float denom = 0.0;
+
+    //// Your implementation starts
+    vec3 grad = collision_constraint_gradient(particles[i].pos, particles[j].pos, combinedRadius);
+    //// Your implementation ends
+    numer = -collision_constraint(particles[i].pos, particles[j].pos, combinedRadius);
+    denom = length(collision_constraint_gradient(particles[i].pos, particles[j].pos, combinedRadius)) * particles[i].inv_mass +
+            length(collision_constraint_gradient(particles[j].pos, particles[i].pos, combinedRadius)) * particles[j].inv_mass;
+
+    //PBD if you comment out the following line, which is faster
+    denom += (1. / 1000.) / (dt * dt);
+
+    if (denom == 0.0) return;
+    float lambda = numer / denom;
+    particles[i].pos += lambda * particles[i].inv_mass * grad;
+    particles[j].pos -= lambda * particles[j].inv_mass * grad;
+}
+
+float phi(vec3 p){
+    const float PI = 3.14159265359;
+    //let's do sin(x)+0.5
+    return p.y - (0.1 * sin(p.x * 2. * PI) - 0.5);
+}
+
+float ground_constraint(vec3 p, float ground_collision_dist){
+    if(phi(p) < ground_collision_dist){
+        //// Your implementation starts
+        return phi(p) - ground_collision_dist;
+        //// Your implementation ends
+    }
+    else{
+        return 0.0;
+    }    
+}
+
+vec3 ground_constraint_gradient(vec3 p, float ground_collision_dist){
+    // Compute the gradient of the ground constraint with respect to p.
+
+    if(phi(p) < ground_collision_dist){
+        //// Your implementation starts
+        const float PI = 3.14159265359;
+        return vec3(-0.1 * 2. * PI * cos(p.x * 2. * PI), -0.1 * 2. * PI * cos(p.y * 2. * PI), 1.0);
+        //// Your implementation ends
+    }
+    else{
+        return vec3(0.0, 0.0, 0.0);
+    }
+}
+
+void solve_ground_constraint(int i, float ground_collision_dist, float dt){
+    // Compute the ground constraint for particle i.
+    float numer = 0.0;
+    float denom = 0.0;
+
+    //// Your implementation starts
+    vec3 grad = ground_constraint_gradient(particles[i].pos, ground_collision_dist);
+    numer = -ground_constraint(particles[i].pos, ground_collision_dist);
+    denom = length(ground_constraint_gradient(particles[i].pos, ground_collision_dist)) * particles[i].inv_mass;
+
+    //// Your implementation ends
+
+    //PBD if you comment out the following line, which is faster
+    denom += (1. / 1000.) / (dt * dt);
+
+    if (denom == 0.0) return;
+    float lambda = numer / denom;
+    particles[i].pos += lambda * particles[i].inv_mass * grad;
+}
+
+void solve_constraints(float dt) {
+    for (int i = 1; i < n_particles; i++) {
+        solve_ground_constraint(i, ground_collision_dist, dt);
+    }
+    for (int i = 1; i < n_particles; i++) {
+        for (int j = i + 1; j < n_particles; j++) {
+            solve_collision_constraint(i, j, collision_dist, dt);
+        }
+    }
+    //// Your implementation ends
+}
 
 float sdf2(vec3 p);
 float sdfSmoothUnion(float a, float b, float k);
@@ -171,47 +368,52 @@ float finger(vec3 p, vec3 lengths, vec3 rots) {
 
 float sdf(vec3 p)
 {
-    p -= vec3(0., 1.0, 1.);
-    p = rotatePointXYZ(p, vec3(0.), -PI / 3., 0., PI / 2.);
+    float s = 0.0;
+    s = sdfSphere(p, vec3(0., 0., 0.), 0.5);
+    // for (int i = 0; i < n_particles; i++) {
+    //     s = sdfUnion(s, sdfSphere(p, particles[i].pos, particles[i].radius));
+    // }
+    // p -= vec3(0., 1.0, 1.);
+    // p = rotatePointXYZ(p, vec3(0.), -PI / 3., 0., PI / 2.);
 
-    // Thumb
-    p = rotatePointZ(p, PI / 2.2);
-    float s = thumb(
-        rotatePointZ(p - vec3(0.0, 0.5, 0.), -PI / 3.),
-        vec2(0.12, 0.09),
-        vec2(0.1, 0.1)
-    );
-    p = rotatePointZ(p, -PI / 2.2);
+    // // Thumb
+    // p = rotatePointZ(p, PI / 2.2);
+    // float s = thumb(
+    //     rotatePointZ(p - vec3(0.0, 0.5, 0.), -PI / 3.),
+    //     vec2(0.12, 0.09),
+    //     vec2(0.1, 0.1)
+    // );
+    // p = rotatePointZ(p, -PI / 2.2);
 
-    // Fingers
-    s = sdfUnion(s, finger(
-        p - vec3(0.3, 0.3, 0.),
-        vec3(0.15, 0.13, 0.1),
-        vec3(0.1, 0.1, 0.1)
-    ));
+    // // Fingers
+    // s = sdfUnion(s, finger(
+    //     p - vec3(0.3, 0.3, 0.),
+    //     vec3(0.15, 0.13, 0.1),
+    //     vec3(0.1, 0.1, 0.1)
+    // ));
 
-    s = sdfUnion(s, finger(
-        p - vec3(0.1, 0.4, 0.),
-        vec3(0.15, 0.13, 0.1),
-        vec3(0.1, 0.1, 0.1)
-    ));
+    // s = sdfUnion(s, finger(
+    //     p - vec3(0.1, 0.4, 0.),
+    //     vec3(0.15, 0.13, 0.1),
+    //     vec3(0.1, 0.1, 0.1)
+    // ));
 
-    s = sdfUnion(s, finger(
-        p - vec3(-0.1, 0.4, 0.),
-        vec3(0.15, 0.13, 0.1),
-        vec3(0.1, 0.1, 0.1)
-    ));
+    // s = sdfUnion(s, finger(
+    //     p - vec3(-0.1, 0.4, 0.),
+    //     vec3(0.15, 0.13, 0.1),
+    //     vec3(0.1, 0.1, 0.1)
+    // ));
 
-    s = sdfUnion(s, finger(
-        p - vec3(-0.3, 0.3, 0.),
-        vec3(0.12, 0.11, 0.08),
-        vec3(0.1, 0.1, 0.1)
-    ));
+    // s = sdfUnion(s, finger(
+    //     p - vec3(-0.3, 0.3, 0.),
+    //     vec3(0.12, 0.11, 0.08),
+    //     vec3(0.1, 0.1, 0.1)
+    // ));
 
 
-    p = rotatePointX(p, PI / 2.);
-    s = sdfSmoothUnion(s, sdfCappedCylinder(p, 0.06, 0.5), 0.04);
-    p = rotatePointX(p, -PI / 2.);
+    // p = rotatePointX(p, PI / 2.);
+    // s = sdfSmoothUnion(s, sdfCappedCylinder(p, 0.06, 0.5), 0.04);
+    // p = rotatePointX(p, -PI / 2.);
 
     // Palm
 
@@ -302,7 +504,155 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     fragColor = vec4(color, 1.);                                            //// fragment color
 }
 
-void main() 
-{
+
+vec3 render_scene(vec2 pixel_xy) {
+    // float phi = phi(pixel_xy);
+    // if(phi < 0.0) {
+    //     col =  vec3(122, 183, 0) / 255.; // ground color
+    // }
+    // else{
+    //     col = vec3(229, 242, 250) / 255.; // background color
+    // }
+    
+    float pixel_size = 2.0 / iResolution.y;
+    
+    // If still initializing, return the background color.
+    if (is_initializing()) {
+        return vec3(0.9, 0.6, 0.2);
+    }
+
+    // // Render rope particles - modified to use per-particle radius and color
+    // {
+    //     for (int i = 0; i < n_particles; i++){
+    //         float dist = length(pixel_xy - particles[i].pos);
+    //         float radius = particles[i].radius;
+    //         //TODO: what is this??
+    //         float effect = remap01(dist, radius, radius - pixel_size);
+    //         if (effect > 0.0) {
+    //             // Use particle's color instead of a fixed color
+    //             col = mix(col, particles[i].color, effect);
+    //         }
+    //     }
+        
+    // }
+    
+    // Render All springs
+    // {
+    //     float min_dist = 1e9;
+
+    //     if(iMouse.z == 1.){
+    //         min_dist = dist_to_segment(pixel_xy, particles[0].pos, particles[selected_particle].pos);
+    //     }
+
+    //     for (int i = 1; i < n_springs; i++) {
+    //         int a = springs[i].a;
+    //         int b = springs[i].b;
+    //         min_dist = min(min_dist, dist_to_segment(pixel_xy, particles[a].pos, particles[b].pos));
+    //     }
+
+    //     const float thickness = 0.01;
+        
+    //     col = mix(col, vec3(0.3, 0.3, 0.3), 0.25 * remap01(min_dist, thickness, thickness - pixel_size));
+    // }
+
+
+    // TODO: merge this with particles
+    // screen uv
+    vec2 uv = pixel_xy;
+    vec3 origin = CAM_POS;                                                  //// camera position 
+    vec3 dir = normalize(vec3(uv.x, uv.y, 1));                              //// camera direction
+    float s = rayMarching(origin, dir);                                     //// ray marching
+    vec3 p = origin + dir * s;                                              //// ray-sdf intersection
+    vec3 n = normal(p);                                                     //// sdf normal
+    vec3 color = phong_shading(p, n);                                       //// phong shading
+    // fragColor = vec4(color, 1.);    
+    return color;
+}
+
+vec4 output_color(vec2 pixel_ij){
+    int i = int(pixel_ij.x);
+    int j = int(pixel_ij.y);
+    
+    if(j == 0){
+        // (0,0): (num_particles, num_springs, selected_particle)
+        if(i==0){
+            // return vec4(float(n_particles), float(n_springs), float(selected_particle), float(current_add_particle));
+            return vec4(float(n_particles), 0, 0.0, 0);
+        }
+        else if(i < n_particles){
+            //a particle
+            return vec4(particles[i].pos, 0);
+        }
+        else{
+            return vec4(0.0, 0.0, 0.0, 1.0);
+        }
+    }
+
+    else if(j == 1){
+        if(i < n_particles){
+            // return vec4(float(springs[i].a), float(springs[i].b), springs[i].restLength, springs[i].inv_stiffness);
+            return vec4(particles[i].vel, 0);
+        }
+        else{
+            return vec4(0.0, 0.0, 0.0, 1.0);
+        }
+    }
+    else if(j == 2){
+        // Store additional particle data (radius and color)
+        if(i < n_particles){
+            return vec4(particles[i].radius, particles[i].color);
+        }
+        else{
+            return vec4(0.0, 0.0, 0.0, 1.0);
+        }
+    }
+    else{
+        vec2 pixel_xy = screen_to_xy(pixel_ij);
+        vec3 color = render_scene(pixel_xy);
+        return vec4(color, 1.0);
+    }
+}
+
+
+// Main function
+void main() {
+    vec2 pixel_ij = vUv * iResolution.xy;
+    int pixel_i = int(pixel_ij.x);
+    int pixel_j = int(pixel_ij.y);
+
+    if(is_initializing()){
+        init_state();
+    }
+    else{
+        load_state();
+        if (pixel_j == 0) {
+            if (pixel_i >= n_particles) return;
+
+            float actual_dt = min(iTimeDelta, 0.02);
+            const int n_steps = 5;
+            float dt = actual_dt / float(n_steps);
+
+            for (int i = 0; i < n_steps; i++) {
+                // Update rope particles only; skip updating the mouse particle since it's fixed.
+                for (int j = 0; j < n_particles; j++) {
+                    if (!particles[j].is_fixed)
+                        particles[j].vel += dt * gravity;
+                    particles[j].vel *= exp(-damp * dt);
+                    particles[j].pos_prev = particles[j].pos;
+                    particles[j].pos += dt * particles[j].vel;
+                }
+                solve_constraints(dt);
+                // Update velocities for rope particles only.
+                for (int j = 0; j < n_particles; j++) {
+                    if (!particles[j].is_fixed){
+                        particles[j].vel = (particles[j].pos - particles[j].pos_prev) / dt;
+                    }
+                }
+            }
+        }
+    }
+
+
+    // gl_FragColor = output_color(pixel_ij);
     mainImage(gl_FragColor, gl_FragCoord.xy);
 }
