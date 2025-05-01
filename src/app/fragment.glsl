@@ -132,7 +132,7 @@ vec3 rotatePointXYZ(vec3 p, vec3 c, float theta_x, float theta_y, float theta_z)
 float smoothing_factor = 0.03;
 
 // helpers to build hand
-float base_knuckle_rad = 0.07;
+float base_knuckle_rad = 0.02;
 float thumb(vec3 p, vec2 lengths, vec2 rots)
 {
     float knuckle_rad = 0.01;
@@ -172,17 +172,15 @@ float finger(vec3 p, vec3 lengths, vec3 rots) {
 float sdf(vec3 p)
 {
     p -= vec3(0., 1.0, 1.);
-    p = rotatePointXYZ(p, vec3(0.), 0., 0., iTime);
-
-    float s = 0.;
+    p = rotatePointXYZ(p, vec3(0.), 0., iTime, 0.);
 
     // Thumb
     p = rotatePointZ(p, PI / 2.2);
-    s = sdfUnion(s, thumb(
+    float s = thumb(
         rotatePointZ(p - vec3(0.0, 0.5, 0.), -PI / 3.),
         vec2(0.12, 0.09),
         vec2(0.1, 0.1)
-    ));
+    );
     p = rotatePointZ(p, -PI / 2.2);
 
     // Fingers
@@ -210,10 +208,12 @@ float sdf(vec3 p)
         vec3(0.1, 0.1, 0.1)
     ));
 
+
+    p = rotatePointX(p, PI / 2.);
+    s = sdfSmoothUnion(s, sdfCappedCylinder(p, 0.06, 0.5), 0.04);
+    p = rotatePointX(p, -PI / 2.);
+
     // Palm
-    // p = rotatePointX(p, PI / 2.);
-    // s = sdfUnion(s, sdfCappedCylinder(p, 0.06, 0.5));
-    // p = rotatePointX(p, -PI / 2.);
 
     return s;
 }
