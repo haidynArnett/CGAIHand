@@ -172,7 +172,7 @@ float finger(vec3 p, vec3 lengths, vec3 rots) {
 float sdf(vec3 p)
 {
     p -= vec3(0., 1.0, 1.);
-    p = rotatePointXYZ(p, vec3(0.), 0., iTime, 0.);
+    p = rotatePointXYZ(p, vec3(0.), -PI / 3., 0., PI / 2.);
 
     // Thumb
     p = rotatePointZ(p, PI / 2.2);
