@@ -7,7 +7,7 @@ uniform float iTimeDelta;
 uniform float iFrame;
 uniform sampler2D iChannel0;
 
-const vec3 CAM_POS = vec3(-0.35, 1.0, -6.0);
+const vec3 CAM_POS = vec3(-0.35, 1.0, -5.0);
 bool initialized = false;
 
 vec2 screen_to_xy(vec2 coord) {
@@ -48,9 +48,14 @@ const int initial_particles = 5;
 int n_particles = 5;
 
 void init_state(void){
+    particles[0].pos = vec3(-2.0, 1.0, 0.0);
+    particles[1].pos = vec3(-1.0, 1.0, 0.0);
+    particles[2].pos = vec3(0.0, 1.0, 0.0);
+    particles[3].pos = vec3(1.0, 1.0, 0.0);
+    particles[4].pos = vec3(2.0, 1.0, 0.0);
+
     for (int i = 0; i < initial_particles; i++) {
-        particles[i].pos = vec3(0.0, 1.0, 0.0);
-        particles[i].pos_prev = vec3(0.0);
+        particles[i].pos_prev = particles[i].pos;
         particles[i].vel = vec3(0.0);
         particles[i].inv_mass = 1.0;
         particles[i].is_fixed = false;
@@ -69,9 +74,6 @@ void load_state() {
     vec4 data = texelFetch(iChannel0, ivec2(0, 0), 0);
     n_particles = int(data.x);
 
-    // if (n_particles == 1) {
-    //     initialized = true;
-    // }
     // Load other particles
     for (int i = 1; i < n_particles; i++) {
         vec4 pos_0 = texelFetch(iChannel0, ivec2(i, 0), 0);
@@ -148,7 +150,8 @@ void solve_collision_constraint(int i, int j, float collision_dist, float dt){
 float phi(vec3 p){
     const float PI = 3.14159265359;
     //let's do sin(x)+0.5
-    return p.y - (0.1 * sin(p.x * 2. * PI) - 0.5);
+    // return p.y - (0.1 * sin(p.x * 2. * PI) - 0.5);
+    return p.y - 0.0;
 }
 
 float ground_constraint(vec3 p, float ground_collision_dist){
@@ -374,7 +377,8 @@ float finger(vec3 p, vec3 lengths, vec3 rots) {
 float sdf(vec3 p)
 {
     float s = 0.0;
-    s = sdfSphere(p, vec3(0., 2., 0.), 0.5);
+    s = sdfPlane(p, 0.0);
+    // s = sdfSphere(p, vec3(0., 2., 0.), 0.5);
     for (int i = 0; i < n_particles; i++) {
         s = sdfUnion(s, sdfSphere(p, particles[i].pos, particles[i].radius));
     }
@@ -632,7 +636,7 @@ void main() {
     else{
         load_state();
         if (pixel_j == 0) {
-            initialized = true;
+            // initialized = true;
             if (pixel_i >= n_particles) return;
 
             float actual_dt = min(iTimeDelta, 0.02);
