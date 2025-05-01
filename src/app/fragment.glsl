@@ -8,6 +8,7 @@ uniform float iFrame;
 uniform sampler2D iChannel0;
 
 const vec3 CAM_POS = vec3(-0.35, 1.0, -6.0);
+bool initialized = false;
 
 vec2 screen_to_xy(vec2 coord) {
     return (coord - 0.5 * iResolution.xy) * 2.0 / iResolution.y;
@@ -41,25 +42,26 @@ const vec3 gravity = vec3(0.0, -0.4, 0.0);
 const int MAX_PARTICLES = 20;
 // const int MAX_SPRINGS = 20;
 
-int n_particles;
 Particle particles[MAX_PARTICLES];
 
 const int initial_particles = 5;
+int n_particles = 5;
 
 void init_state(void){
     for (int i = 0; i < initial_particles; i++) {
-        particles[i].pos = vec3(0.0);
+        particles[i].pos = vec3(0.0, 1.0, 0.0);
         particles[i].pos_prev = vec3(0.0);
         particles[i].vel = vec3(0.0);
         particles[i].inv_mass = 1.0;
         particles[i].is_fixed = false;
+        particles[i].radius = 0.5;
+        particles[i].color = vec3(1.0, 0.0, 0.0);
     }
 }
 
 bool is_initializing() {
     return iTime < 0.06 || iFrame < 2.;
 }
-
 // // Load rope particles from the previous frame and update the mouse particle.
 void load_state() {
     //0,0: (num_particles, num_springs, selected_particle)
@@ -67,6 +69,9 @@ void load_state() {
     vec4 data = texelFetch(iChannel0, ivec2(0, 0), 0);
     n_particles = int(data.x);
 
+    // if (n_particles == 1) {
+    //     initialized = true;
+    // }
     // Load other particles
     for (int i = 1; i < n_particles; i++) {
         vec4 pos_0 = texelFetch(iChannel0, ivec2(i, 0), 0);
@@ -369,10 +374,10 @@ float finger(vec3 p, vec3 lengths, vec3 rots) {
 float sdf(vec3 p)
 {
     float s = 0.0;
-    s = sdfSphere(p, vec3(0., 0., 0.), 0.5);
-    // for (int i = 0; i < n_particles; i++) {
-    //     s = sdfUnion(s, sdfSphere(p, particles[i].pos, particles[i].radius));
-    // }
+    s = sdfSphere(p, vec3(0., 2., 0.), 0.5);
+    for (int i = 0; i < n_particles; i++) {
+        s = sdfUnion(s, sdfSphere(p, particles[i].pos, particles[i].radius));
+    }
     // p -= vec3(0., 1.0, 1.);
     // p = rotatePointXYZ(p, vec3(0.), -PI / 3., 0., PI / 2.);
 
@@ -517,9 +522,9 @@ vec3 render_scene(vec2 pixel_xy) {
     float pixel_size = 2.0 / iResolution.y;
     
     // If still initializing, return the background color.
-    if (is_initializing()) {
-        return vec3(0.9, 0.6, 0.2);
-    }
+    // if (is_initializing()) {
+    //     return vec3(0.9, 0.6, 0.2);
+    // }
 
     // // Render rope particles - modified to use per-particle radius and color
     // {
@@ -577,11 +582,12 @@ vec4 output_color(vec2 pixel_ij){
         // (0,0): (num_particles, num_springs, selected_particle)
         if(i==0){
             // return vec4(float(n_particles), float(n_springs), float(selected_particle), float(current_add_particle));
-            return vec4(float(n_particles), 0, 0.0, 0);
+            return vec4(float(n_particles), 0.0, 0.0, 0.0);
+            // return vec4(1.0, 0.0, 0.0, 0.0);
         }
         else if(i < n_particles){
             //a particle
-            return vec4(particles[i].pos, 0);
+            return vec4(particles[i].pos, 0.0);
         }
         else{
             return vec4(0.0, 0.0, 0.0, 1.0);
@@ -591,7 +597,7 @@ vec4 output_color(vec2 pixel_ij){
     else if(j == 1){
         if(i < n_particles){
             // return vec4(float(springs[i].a), float(springs[i].b), springs[i].restLength, springs[i].inv_stiffness);
-            return vec4(particles[i].vel, 0);
+            return vec4(particles[i].vel, 0.0);
         }
         else{
             return vec4(0.0, 0.0, 0.0, 1.0);
@@ -626,6 +632,7 @@ void main() {
     else{
         load_state();
         if (pixel_j == 0) {
+            initialized = true;
             if (pixel_i >= n_particles) return;
 
             float actual_dt = min(iTimeDelta, 0.02);
@@ -653,6 +660,9 @@ void main() {
     }
 
 
-    // gl_FragColor = output_color(pixel_ij);
-    mainImage(gl_FragColor, gl_FragCoord.xy);
+    gl_FragColor = output_color(pixel_ij);
+    // mainImage(gl_FragColor, gl_FragCoord.xy);
+    if(initialized){
+        gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+    }
 }
