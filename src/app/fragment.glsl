@@ -6,7 +6,7 @@ uniform float iTime;                //// time elapsed (uniform, from CPU)
 uniform float iTimeDelta;
 uniform float iFrame;
 uniform sampler2D iChannel0;
-const vec3 CAM_POS = vec3(-0.35, 0.0, -2.0);
+const vec3 CAM_POS = vec3(-0.35, 1.0, -1.0);
 bool initialized = false;
 
 vec2 screen_to_xy(vec2 coord) {
@@ -192,7 +192,7 @@ float sdf_hand(vec3 p)
     }
 
     p -= vec3(0., 1.0, 1.);
-    p = rotatePointXYZ(p, vec3(0.), -PI / 3., 0., PI / 2. + iTime);
+    p = rotatePointXYZ(p, vec3(0.), -PI / 3., 0., PI / 2.);
 
     // // Thumb
     p = rotatePointZ(p, PI / 1.8);
@@ -251,10 +251,11 @@ struct Particle {
 };
 
 // Simulation constants
-const float damp = 0.4;
+const float damp = 0.2;
 const float collision_dist = 0.2;
-const float ground_collision_dist = 0.15;
-const vec3 gravity = vec3(0.0, -100.0, 0.0);
+const float ground_collision_dist = 0.05;
+const float GRAVITY_FACTOR = 200.0;
+const vec3 gravity = vec3(0.0, -GRAVITY_FACTOR, 0.0);
 
 // Define n_rope rope particles and add one extra "mouse particle".
 const int MAX_PARTICLES = 20;
@@ -270,6 +271,12 @@ float rand(vec2 co){
     return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
 }
 
+vec3 random_init_position(int i) {
+    float random = sin(rand(vec2(float(i), float(i))));
+    // return vec3(0.0 + 0.05 * random, 2.0, 1.0 + 0.05 * random2);
+    return vec3(0.5, 2.0 + random * 0.1, 1.0);
+}
+
 void init_state(void){
     // particles[0].pos = vec3(-2.0, 1.0, 0.0);
     // particles[1].pos = vec3(-1.0, 2.0, 0.0);
@@ -279,17 +286,13 @@ void init_state(void){
     // particles[5].pos = vec3(1.5, 2.0, 0.1);
 
     for (int i = 1; i < initial_particles; i++) {
-        float start = float(i) / float(initial_particles) * 2.0;
-        float random = sin(rand(vec2(float(i), float(i))));
-        float random2 = sin(rand(vec2(float(i+1), float(i+1))));
-
-        particles[i].pos  = vec3(random, start, random2);
+        particles[i].pos  = random_init_position(i);
         particles[i].pos_prev = particles[i].pos;
         particles[i].vel = vec3(0.0);
         particles[i].inv_mass = 1.0;
         particles[i].is_fixed = false;
         particles[i].radius = 0.03;
-        particles[i].color = vec3(1.0, 0.0, 0.0);
+        particles[i].color = vec3(1.0, 1.0, 1.0);
     }
 }
 
@@ -406,7 +409,7 @@ vec3 ground_constraint_gradient(vec3 p, float ground_collision_dist){
 
     if(sdf_hand(p) < ground_collision_dist){
         //// Your implementation starts
-        return hand_sdf_gradient(p);
+        return hand_sdf_gradient(p) * GRAVITY_FACTOR;
         //// Your implementation ends
     }
     else{
@@ -527,7 +530,17 @@ vec3 phong_shading(vec3 p, vec3 n)
     float s = rayMarching(p + n * 0.02, l);
     if(s < length(lightPos - p)) dif *= .2;
 
-    vec3 color = vec3(1., 1., 1.);
+    vec3 color = vec3(0.0);
+    if(sdf(p) == sdf_hand(p)){
+        color = vec3(1., 1., 1.);
+    }
+    else{
+        // Create a rainbow gradient based on position
+        float r = 0.5 + 0.5 * sin(p.x * 3.0 + iTime);
+        float g = 0.5 + 0.5 * sin(p.y * 4.0 + iTime * 1.3);
+        float b = 0.5 + 0.5 * sin(p.z * 5.0 + iTime * 0.7);
+        color = vec3(r, g, b);
+    }
 
     return (amb + dif + spec + sunDif) * color;
 }
@@ -685,6 +698,11 @@ void main() {
                     particles[j].vel *= exp(-damp * dt);
                     particles[j].pos_prev = particles[j].pos;
                     particles[j].pos += dt * particles[j].vel;
+
+                    if (particles[j].pos.y < 0.0) {
+                        particles[j].pos = random_init_position(j);
+                        particles[j].vel = vec3(0.0);
+                    }
                 }
                 solve_constraints(dt);
                 // Update velocities for rope particles only.
