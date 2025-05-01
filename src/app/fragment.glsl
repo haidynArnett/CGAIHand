@@ -6,7 +6,7 @@ uniform float iTime;                //// time elapsed (uniform, from CPU)
 
 const vec3 CAM_POS = vec3(-0.35, 1.0, -3.0);
 
-vec2 sdf2(vec3 p);
+float sdf2(vec3 p);
 float sdfSmoothUnion(float a, float b, float k);
 float sdfBlob(vec3 p, vec3 c, int num_x, int num_y, int numz);
 
@@ -34,6 +34,13 @@ float sdfBox(vec3 p, vec3 c, vec3 b)
     return length(max(d, 0.0)) + min(max(d.x, max(d.y, d.z)), 0.0);
 }
 
+//// Vertical Capped Cylinder p - query point; h - height; r - radius from https://iquilezles.org/articles/distfunctions/
+float sdfCappedCylinder( vec3 p, float h, float r )
+{
+  vec2 d = abs(vec2(length(p.xz),p.y)) - vec2(r,h);
+  return min(max(d.x,d.y),0.0) + length(max(d,0.0));
+}
+
 // Octahedron - exact from https://iquilezles.org/articles/distfunctions/
 float sdOctahedron( vec3 p, float s )
 {
@@ -50,7 +57,7 @@ float sdOctahedron( vec3 p, float s )
 }
 
 /////////////////////////////////////////////////////
-//// boolean operations
+//// operations
 /////////////////////////////////////////////////////
 float sdfIntersection(float s1, float s2)
 {
@@ -67,156 +74,8 @@ float sdfSubtraction(float s1, float s2)
     return max(s1, -s2);
 }
 
-/////////////////////////////////////////////////////
-//// sdf calculation
-/////////////////////////////////////////////////////
-
-//// sdf: p - query point
-vec2 sdf(vec3 p)
-{
-    float s = 0.;
-
-    //// 1st object: plane
-    float plane1_h = -0.1;
-    
-    //// 2nd object: sphere
-    vec3 sphere1_c = vec3(-2.0, 1.0, 0.0);
-    float sphere1_r = 0.25;
-
-    //// 3rd object: box
-    vec3 box1_c = vec3(-1.0, 1.0, 0.0);
-    vec3 box1_b = vec3(0.2, 0.2, 0.2);
-
-    //// 4th object: box-sphere subtraction
-    vec3 box2_c = vec3(0.0, 1.0, 0.0);
-    vec3 box2_b = vec3(0.3, 0.3, 0.3);
-
-    vec3 sphere2_c = vec3(0.0, 1.0, 0.0);
-    float sphere2_r = 0.4;
-
-    //// 5th object: sphere-sphere intersection
-    vec3 sphere3_c = vec3(1.0, 1.0, 0.0);
-    float sphere3_r = 0.4;
-
-    vec3 sphere4_c = vec3(1.3, 1.0, 0.0);
-    float sphere4_r = 0.3;
-
-    //// calculate the sdf based on all objects in the scene
-    
-    float plane1_sdf = sdfPlane(p, plane1_h);
-    float sphere1_sdf = sdfSphere(p, sphere1_c, sphere1_r);
-    float box1_sdf = sdfBox(p, box1_c, box1_b);
-    float box_sphere_sdf = sdfSubtraction(sdfBox(p, box2_c, box2_b), sdfSphere(p, sphere2_c, sphere2_r));
-    float sphere_sphere_sdf = sdfIntersection(sdfSphere(p, sphere3_c, sphere3_r), sdfSphere(p, sphere4_c, sphere4_r));
-    
-    s = plane1_sdf;
-    s = sdfUnion(s, sphere1_sdf);
-    s = sdfUnion(s, box1_sdf);
-    s = sdfUnion(s, box_sphere_sdf);
-    s = sdfUnion(s, sphere_sphere_sdf);
-    
-    int material_id = 0;
-    if (s == plane1_sdf) {
-        material_id = 0;
-    } else if (s == sphere1_sdf) {
-        material_id = 1;
-    } else if (s == box1_sdf) {
-        material_id = 2;
-    } else if (s == box_sphere_sdf) {
-        material_id = 3;
-    } else if (s == sphere_sphere_sdf) {
-        material_id = 4;
-    }
-    //// your implementation ends
-
-    return vec2(s, material_id);
-}
-
-/////////////////////////////////////////////////////
-//// ray marching
-/////////////////////////////////////////////////////
-
-//// ray marching: origin - ray origin; dir - ray direction 
-float rayMarching(vec3 origin, vec3 dir)
-{
-    float s = 0.0;
-    for(int i = 0; i < 100; i++)
-    {
-        vec3 p = origin + s * dir;
-        float sdf = sdf(p).x;
-        s += sdf;
-        if (sdf < 0.0 || s > 20.0) {
-            break;
-        }
-    }
-    
-    return s;
-}
-
-/////////////////////////////////////////////////////
-//// normal calculation
-/////////////////////////////////////////////////////
-
-//// normal: p - query point
-vec3 normal(vec3 p)
-{
-    float s = sdf(p).x;          //// sdf value in p
-    float dx = 0.01;           //// step size for finite difference
-
-    float nx = sdf(vec3(p.x + dx, p.y, p.z)).x - s;
-    float ny = sdf(vec3(p.x, p.y + dx, p.z)).x - s;
-    float nz = sdf(vec3(p.x, p.y, p.z + dx)).x - s;
-    return normalize(vec3(nx, ny, nz));
-}
-
-/////////////////////////////////////////////////////
-//// Phong shading
-/////////////////////////////////////////////////////
-
-vec3 phong_shading(vec3 p, vec3 n)
-{
-    //// background
-    if(p.z > 10.0){
-        return vec3(0.9, 0.6, 0.2);
-    }
-
-    //// phong shading
-    vec3 lightPos = vec3(4.*sin(iTime), 4., 4.*cos(iTime));  
-    vec3 l = normalize(lightPos - p);               
-    float amb = 0.1;
-    float dif = max(dot(n, l), 0.) * 0.7;
-    vec3 eye = CAM_POS;
-    float spec = pow(max(dot(reflect(-l, n), normalize(eye - p)), 0.0), 128.0) * 0.9;
-
-    vec3 sunDir = vec3(0, 1, -1);
-    float sunDif = max(dot(n, sunDir), 0.) * 0.2;
-
-    //// shadow
-    float s = rayMarching(p + n * 0.02, l);
-    if(s < length(lightPos - p)) dif *= .2;
-
-    vec3 color = vec3(1.0, 1.0, 1.0);
-
-    int material_id = int(sdf(p).y);
-    switch(material_id) {
-        case 0:
-            color = vec3(0.1, 0.8, 0.1);
-            break;
-        case 1:
-            color = vec3(1.0, 0.05, 0.05);
-            break;
-        case 2:
-            color = vec3(0.0, 0.9, 0.1);
-            break;
-        case 3:
-            color = vec3(0.0, 0.1, 0.95);
-            break;
-        case 4:
-            color = vec3(0.7, 0.7, 1.0);
-            break;
-    }
-
-    return (amb + dif + spec + sunDif) * color;
+float sdfSmoothUnion(float a, float b, float k) {
+    return -k * log2(exp2(-a/k) + exp2(-b/k));
 }
 
 vec3 translatePoint(vec3 p, vec3 t) {
@@ -250,8 +109,181 @@ vec3 rotatePointXYZ(vec3 p, vec3 c, float theta_x, float theta_y, float theta_z)
     return p;
 }
 
-float sdfSmoothUnion(float a, float b, float k) {
-    return -k * log2(exp2(-a/k) + exp2(-b/k));
+/////////////////////////////////////////////////////
+//// sdf hand calculation
+/////////////////////////////////////////////////////
+
+// struct Joint {
+//     Joint parent;
+//     vec3 offset;
+//     vec3 abs_pos;
+//     vec3 rotation;
+//     float s;
+// }
+
+// Joint make_joint(Joint parent, vec3 offset, vec3 rotation) {
+//     Joint joint = Joint(parent, offset, vec3(0.), rotation, 0.);
+//     joint.abs_pos = joint.offset;
+//     if (joint.parent != NUll) {
+//         joint.abs_pos += joint.parent.abs_pos;
+//     }
+// }
+
+float smoothing_factor = 0.03;
+
+// helpers to build hand
+float base_knuckle_rad = 0.07;
+float thumb(vec3 p, vec2 lengths, vec2 rots)
+{
+    float knuckle_rad = 0.01;
+    float finger_rad = 0.06;
+
+    vec3 p1 = rotatePointX(p, rots.x);
+    float s = sdfSphere(p1, vec3(0.), base_knuckle_rad);
+    s = sdfSmoothUnion(s, sdfCappedCylinder(p1 - vec3(0., lengths.x, 0.), lengths.x, finger_rad), smoothing_factor);
+
+    vec3 p2 = rotatePointX(p1 - vec3(0., lengths.x * 2., 0.), rots.y);
+    s = sdfSmoothUnion(s, sdfSphere(p2, vec3(0.), knuckle_rad), smoothing_factor);
+    s = sdfSmoothUnion(s, sdfCappedCylinder(p2 - vec3(0., lengths.y, 0.), lengths.y, finger_rad), smoothing_factor);
+    s = sdfSmoothUnion(s, sdfSphere(p2, vec3(0., lengths.y * 2., 0.), finger_rad), smoothing_factor);
+    return s;
+}
+
+float finger(vec3 p, vec3 lengths, vec3 rots) {
+    float knuckle_rad = 0.01;
+    float finger_rad = 0.05;
+
+    vec3 p1 = rotatePointX(p, rots.x);
+    float s = sdfSphere(p1, vec3(0.), base_knuckle_rad);
+    s = sdfSmoothUnion(s, sdfCappedCylinder(p1 - vec3(0., lengths.x, 0.), lengths.x, finger_rad), smoothing_factor);
+
+    vec3 p2 = rotatePointX(p1 - vec3(0., lengths.x * 2., 0.), rots.y);
+    s = sdfSmoothUnion(s, sdfSphere(p2, vec3(0.), knuckle_rad), smoothing_factor);
+    s = sdfSmoothUnion(s, sdfCappedCylinder(p2 - vec3(0., lengths.y, 0.), lengths.y, finger_rad), smoothing_factor);
+
+    vec3 p3 = rotatePointX(p2 - vec3(0., lengths.y * 2., 0.), rots.z);
+    s = sdfSmoothUnion(s, sdfSphere(p3, vec3(0.), knuckle_rad), smoothing_factor);
+    s = sdfSmoothUnion(s, sdfCappedCylinder(p3 - vec3(0., lengths.z, 0.), lengths.z, finger_rad), smoothing_factor);
+    s = sdfSmoothUnion(s, sdfSphere(p3, vec3(0., lengths.z * 2., 0.), finger_rad), smoothing_factor);
+
+    return s;
+}
+
+float sdf(vec3 p)
+{
+    p -= vec3(0., 1.0, 1.);
+    p = rotatePointXYZ(p, vec3(0.), 0., 0., iTime);
+
+    float s = 0.;
+
+    // Thumb
+    p = rotatePointZ(p, PI / 2.2);
+    s = sdfUnion(s, thumb(
+        rotatePointZ(p - vec3(0.0, 0.5, 0.), -PI / 3.),
+        vec2(0.12, 0.09),
+        vec2(0.1, 0.1)
+    ));
+    p = rotatePointZ(p, -PI / 2.2);
+
+    // Fingers
+    s = sdfUnion(s, finger(
+        p - vec3(0.3, 0.3, 0.),
+        vec3(0.15, 0.13, 0.1),
+        vec3(0.1, 0.1, 0.1)
+    ));
+
+    s = sdfUnion(s, finger(
+        p - vec3(0.1, 0.4, 0.),
+        vec3(0.15, 0.13, 0.1),
+        vec3(0.1, 0.1, 0.1)
+    ));
+
+    s = sdfUnion(s, finger(
+        p - vec3(-0.1, 0.4, 0.),
+        vec3(0.15, 0.13, 0.1),
+        vec3(0.1, 0.1, 0.1)
+    ));
+
+    s = sdfUnion(s, finger(
+        p - vec3(-0.3, 0.3, 0.),
+        vec3(0.12, 0.11, 0.08),
+        vec3(0.1, 0.1, 0.1)
+    ));
+
+    // Palm
+    // p = rotatePointX(p, PI / 2.);
+    // s = sdfUnion(s, sdfCappedCylinder(p, 0.06, 0.5));
+    // p = rotatePointX(p, -PI / 2.);
+
+    return s;
+}
+
+/////////////////////////////////////////////////////
+//// ray marching
+/////////////////////////////////////////////////////
+
+//// ray marching: origin - ray origin; dir - ray direction 
+float rayMarching(vec3 origin, vec3 dir)
+{
+    float s = 0.0;
+    for(int i = 0; i < 100; i++)
+    {
+        vec3 p = origin + s * dir;
+        float sdf = sdf(p);
+        s += sdf;
+        if (sdf < 0.0 || s > 20.0) {
+            break;
+        }
+    }
+    
+    return s;
+}
+
+/////////////////////////////////////////////////////
+//// normal calculation
+/////////////////////////////////////////////////////
+
+//// normal: p - query point
+vec3 normal(vec3 p)
+{
+    float s = sdf(p);          //// sdf value in p
+    float dx = 0.01;           //// step size for finite difference
+
+    float nx = sdf(vec3(p.x + dx, p.y, p.z)) - s;
+    float ny = sdf(vec3(p.x, p.y + dx, p.z)) - s;
+    float nz = sdf(vec3(p.x, p.y, p.z + dx)) - s;
+    return normalize(vec3(nx, ny, nz));
+}
+
+/////////////////////////////////////////////////////
+//// Phong shading
+/////////////////////////////////////////////////////
+
+vec3 phong_shading(vec3 p, vec3 n)
+{
+    //// background
+    if(p.z > 10.0){
+        return vec3(0.9, 0.6, 0.2);
+    }
+
+    //// phong shading
+    vec3 lightPos = vec3(4.*sin(iTime), 4., 4.*cos(iTime));  
+    vec3 l = normalize(lightPos - p);               
+    float amb = 0.1;
+    float dif = max(dot(n, l), 0.) * 0.7;
+    vec3 eye = CAM_POS;
+    float spec = pow(max(dot(reflect(-l, n), normalize(eye - p)), 0.0), 128.0) * 0.9;
+
+    vec3 sunDir = vec3(0, 1, -1);
+    float sunDif = max(dot(n, sunDir), 0.) * 0.2;
+
+    //// shadow
+    float s = rayMarching(p + n * 0.02, l);
+    if(s < length(lightPos - p)) dif *= .2;
+
+    vec3 color = vec3(1., 1., 1.);
+
+    return (amb + dif + spec + sunDif) * color;
 }
 
 /////////////////////////////////////////////////////
