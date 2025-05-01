@@ -176,12 +176,6 @@ const vec3[5] closed_rotations = vec3[5](
     vec3(1., 1., 1.)
 );
 
-// for (int i = 0; i < 5; i+=1) {
-//     float k1 = (cos(iTime) + 1.) / 2.;
-//     float k2 = ;
-//     rotations[i] = k1 * closed_rotations[i] + k2 * closed_rotations[i];
-// }
-//  = open_rotations + closed_rotations;
 float sdf_hand(vec3 p)
 {
     vec3[5] rotations;
@@ -235,7 +229,6 @@ float sdf_hand(vec3 p)
     palm_s = sdfSubtraction(palm_s, sdfBox(p, vec3(-0.65, 0., 0.), vec3(0.2, 0.1, 0.8)));
     palm_s = sdfSubtraction(palm_s, sdfBox(p, vec3(0., 0., -0.5), vec3(0.5, 0.1, 0.1)));
     s = sdfSmoothUnion(s, palm_s, 0.05);
-    // s = sdfSmoothUnion(s, sdfCappedCylinder(p, 0.06, 0.5), 0.04);
     p = rotatePointX(p, -PI / 2.);
     return s;
 }
@@ -257,7 +250,6 @@ const float ground_collision_dist = 0.05;
 const float GRAVITY_FACTOR = 200.0;
 const vec3 gravity = vec3(0.0, -GRAVITY_FACTOR, 0.0);
 
-// Define n_rope rope particles and add one extra "mouse particle".
 const int MAX_PARTICLES = 20;
 // const int MAX_SPRINGS = 20;
 
@@ -278,13 +270,6 @@ vec3 random_init_position(int i) {
 }
 
 void init_state(void){
-    // particles[0].pos = vec3(-2.0, 1.0, 0.0);
-    // particles[1].pos = vec3(-1.0, 2.0, 0.0);
-    // particles[2].pos = vec3(0.0, 2.0, 0.0);
-    // particles[3].pos = vec3(1.0, 2.0, 0.0);
-    // particles[4].pos = vec3(2.0, 2.0, 0.0);
-    // particles[5].pos = vec3(1.5, 2.0, 0.1);
-
     for (int i = 1; i < initial_particles; i++) {
         particles[i].pos  = random_init_position(i);
         particles[i].pos_prev = particles[i].pos;
@@ -299,10 +284,7 @@ void init_state(void){
 bool is_initializing() {
     return iTime < 0.06 || iFrame < 2.;
 }
-// // Load rope particles from the previous frame and update the mouse particle.
 void load_state() {
-    //0,0: (num_particles, num_springs, selected_particle)
-
     vec4 data = texelFetch(iChannel0, ivec2(0, 0), 0);
     n_particles = int(data.x);
 
@@ -322,15 +304,9 @@ void load_state() {
 }
 
 float collision_constraint(vec3 a, vec3 b, float collision_dist){
-    // Compute the distance between two particles a and b.
-    // The constraint is defined as L - L0, where L is the current distance between a and b
-    // and L0 = collision_dist is the minimum distance between a and b.
-
     float dist = length(a - b);
     if(dist < collision_dist){
-        //// Your implementation starts
         return dist - collision_dist;
-        //// Your implementation ends
     }
     else{
         return 0.0;
@@ -338,17 +314,13 @@ float collision_constraint(vec3 a, vec3 b, float collision_dist){
 }
 
 vec3 collision_constraint_gradient(vec3 a, vec3 b, float collision_dist){
-    // Compute the gradient of the collision constraint with respect to a.
-
     float dist = length(a - b);
     if(dist <= collision_dist){
-        //// Your implementation starts
         if (a == b) {
             return vec3(0.0);
         }
         vec3 grad = normalize(a - b);
         return grad;
-        //// Your implementation ends
     }
     else{
         return vec3(0.0);
@@ -363,9 +335,7 @@ void solve_collision_constraint(int i, int j, float collision_dist, float dt){
     float numer = 0.0;
     float denom = 0.0;
 
-    //// Your implementation starts
     vec3 grad = collision_constraint_gradient(particles[i].pos, particles[j].pos, combinedRadius);
-    //// Your implementation ends
     numer = -collision_constraint(particles[i].pos, particles[j].pos, combinedRadius);
     denom = length(collision_constraint_gradient(particles[i].pos, particles[j].pos, combinedRadius)) * particles[i].inv_mass +
             length(collision_constraint_gradient(particles[j].pos, particles[i].pos, combinedRadius)) * particles[j].inv_mass;
@@ -379,14 +349,6 @@ void solve_collision_constraint(int i, int j, float collision_dist, float dt){
     particles[j].pos -= lambda * particles[j].inv_mass * grad;
 }
 
-// float phi(vec3 p){
-//     const float PI = 3.14159265359;
-//     //let's do sin(x)+0.5
-//     // return p.y - (0.1 * sin(p.x * 2. * PI) - 0.5);
-//     return p.y - 0.0;
-// }
-
-
 vec3 hand_sdf_gradient(vec3 p){
     float dx = 0.01;
     float s = sdf_hand(p);
@@ -395,9 +357,7 @@ vec3 hand_sdf_gradient(vec3 p){
 
 float ground_constraint(vec3 p, float ground_collision_dist){
     if(sdf_hand(p) < ground_collision_dist){
-        //// Your implementation starts
         return sdf_hand(p) - ground_collision_dist;
-        //// Your implementation ends
     }
     else{
         return 0.0;
@@ -422,14 +382,10 @@ void solve_ground_constraint(int i, float ground_collision_dist, float dt){
     float numer = 0.0;
     float denom = 0.0;
 
-    //// Your implementation starts
     vec3 grad = ground_constraint_gradient(particles[i].pos, ground_collision_dist);
     numer = -ground_constraint(particles[i].pos, ground_collision_dist);
     denom = length(ground_constraint_gradient(particles[i].pos, ground_collision_dist)) * particles[i].inv_mass;
 
-    //// Your implementation ends
-
-    //PBD if you comment out the following line, which is faster
     denom += (1. / 1000.) / (dt * dt);
 
     if (denom == 0.0) return;
@@ -446,7 +402,6 @@ void solve_constraints(float dt) {
             solve_collision_constraint(i, j, collision_dist, dt);
         }
     }
-    //// Your implementation ends
 }
 
 
@@ -459,10 +414,6 @@ float sdf(vec3 p)
         s = sdfSmoothUnion(s, sdfSphere(p, particles[i].pos, particles[i].radius), 0.05);
     }
     s = sdfUnion(s, sdf_hand(p));
-    // s = sdfSphere(p, vec3(0., 2., 0.), 0.5);
-    // p -= vec3(0., 1.0, 1.);
-
-
     return s;
 }
 
@@ -549,71 +500,8 @@ vec3 phong_shading(vec3 p, vec3 n)
 //// main function
 /////////////////////////////////////////////////////
 
-void mainImage(out vec4 fragColor, in vec2 fragCoord)
-{
-    vec2 uv = (fragCoord.xy - .5 * iResolution.xy) / iResolution.y;         //// screen uv
-    vec3 origin = CAM_POS;                                                  //// camera position 
-    vec3 dir = normalize(vec3(uv.x, uv.y, 1));                              //// camera direction
-    float s = rayMarching(origin, dir);                                     //// ray marching
-    vec3 p = origin + dir * s;                                              //// ray-sdf intersection
-    vec3 n = normal(p);                                                     //// sdf normal
-    vec3 color = phong_shading(p, n);                                       //// phong shading
-    fragColor = vec4(color, 1.);                                            //// fragment color
-}
-
-
 vec3 render_scene(vec2 pixel_xy) {
-    // float phi = phi(pixel_xy);
-    // if(phi < 0.0) {
-    //     col =  vec3(122, 183, 0) / 255.; // ground color
-    // }
-    // else{
-    //     col = vec3(229, 242, 250) / 255.; // background color
-    // }
-    
     float pixel_size = 2.0 / iResolution.y;
-    
-    // If still initializing, return the background color.
-    // if (is_initializing()) {
-    //     return vec3(0.9, 0.6, 0.2);
-    // }
-
-    // // Render rope particles - modified to use per-particle radius and color
-    // {
-    //     for (int i = 0; i < n_particles; i++){
-    //         float dist = length(pixel_xy - particles[i].pos);
-    //         float radius = particles[i].radius;
-    //         //TODO: what is this??
-    //         float effect = remap01(dist, radius, radius - pixel_size);
-    //         if (effect > 0.0) {
-    //             // Use particle's color instead of a fixed color
-    //             col = mix(col, particles[i].color, effect);
-    //         }
-    //     }
-        
-    // }
-    
-    // Render All springs
-    // {
-    //     float min_dist = 1e9;
-
-    //     if(iMouse.z == 1.){
-    //         min_dist = dist_to_segment(pixel_xy, particles[0].pos, particles[selected_particle].pos);
-    //     }
-
-    //     for (int i = 1; i < n_springs; i++) {
-    //         int a = springs[i].a;
-    //         int b = springs[i].b;
-    //         min_dist = min(min_dist, dist_to_segment(pixel_xy, particles[a].pos, particles[b].pos));
-    //     }
-
-    //     const float thickness = 0.01;
-        
-    //     col = mix(col, vec3(0.3, 0.3, 0.3), 0.25 * remap01(min_dist, thickness, thickness - pixel_size));
-    // }
-
-
-    // TODO: merge this with particles
     // screen uv
     vec2 uv = pixel_xy;
     vec3 origin = CAM_POS;                                                  //// camera position 
@@ -622,7 +510,6 @@ vec3 render_scene(vec2 pixel_xy) {
     vec3 p = origin + dir * s;                                              //// ray-sdf intersection
     vec3 n = normal(p);                                                     //// sdf normal
     vec3 color = phong_shading(p, n);                                       //// phong shading
-    // fragColor = vec4(color, 1.);    
     return color;
 }
 
@@ -631,11 +518,8 @@ vec4 output_color(vec2 pixel_ij){
     int j = int(pixel_ij.y);
     
     if(j == 0){
-        // (0,0): (num_particles, num_springs, selected_particle)
         if(i==0){
-            // return vec4(float(n_particles), float(n_springs), float(selected_particle), float(current_add_particle));
             return vec4(float(n_particles), 0.0, 0.0, 0.0);
-            // return vec4(1.0, 0.0, 0.0, 0.0);
         }
         else if(i < n_particles){
             //a particle
@@ -648,7 +532,6 @@ vec4 output_color(vec2 pixel_ij){
 
     else if(j == 1){
         if(i < n_particles){
-            // return vec4(float(springs[i].a), float(springs[i].b), springs[i].restLength, springs[i].inv_stiffness);
             return vec4(particles[i].vel, 0.0);
         }
         else{
@@ -718,7 +601,6 @@ void main() {
 
 
     gl_FragColor = output_color(pixel_ij);
-    // mainImage(gl_FragColor, gl_FragCoord.xy);
     if(initialized){
         gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
     }
